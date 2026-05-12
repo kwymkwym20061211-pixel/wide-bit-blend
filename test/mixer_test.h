@@ -93,7 +93,8 @@ typedef struct
     mt_bit_independence_result_t bit_independence;
     mt_uniformity_result_t uniformity;
     uint32_t trials;
-    double elapsed_sec;
+    double elapsed_sec; // テスト合計時間(参考)
+    double bench_ns;    // ミキサー単体ns/call
     bool all_passed;
 } mt_result_t;
 
@@ -488,6 +489,10 @@ mt_result_t mt_run_all(mt_mixer_fn mixer, uint32_t trials)
     clock_t t_end = clock();
     r.elapsed_sec = (double)(t_end - t_start) / CLOCKS_PER_SEC;
 
+    // 単体ベンチ
+    mt_bench_result_t bench = mt_bench(mixer, MT_BENCH_TRIALS);
+    r.bench_ns = bench.ns_per_call;
+
     r.all_passed = r.avalanche.passed && r.bit_independence.passed && r.uniformity.passed;
     return r;
 }
@@ -524,19 +529,6 @@ void mt_print_uniformity(const mt_uniformity_result_t *r)
     printf("  result        : %s\n", r->passed ? "PASS" : "FAIL");
 }
 
-static void mt__print_perf(const mt_result_t *r)
-{
-    // 呼び出し回数: avalanche=(MT_BITS+1)*trials, bit_independence=(MT_BITS+1)*trials, uniformity=trials
-    uint64_t calls = (uint64_t)(MT_BITS + 1) * r->trials   // avalanche
-                     + (uint64_t)(MT_BITS + 1) * r->trials // bit_independence
-                     + (uint64_t)r->trials;                // uniformity
-    double ns_per_call = r->elapsed_sec * 1e9 / (double)calls;
-    printf("--- Performance ---\n");
-    printf("  total time    : %.3f sec\n", r->elapsed_sec);
-    printf("  mixer calls   : %llu\n", (unsigned long long)calls);
-    printf("  ns/call       : %.1f ns\n", ns_per_call);
-}
-
 void mt_print_result_named(const mt_result_t *r, const char *name)
 {
     printf("========================================\n");
@@ -545,7 +537,8 @@ void mt_print_result_named(const mt_result_t *r, const char *name)
     mt_print_avalanche(&r->avalanche);
     mt_print_bit_independence(&r->bit_independence);
     mt_print_uniformity(&r->uniformity);
-    mt__print_perf(r);
+    printf("--- Performance ---\n");
+    printf("  ns/call       : %.1f ns  (bench trials=%d)\n", r->bench_ns, MT_BENCH_TRIALS);
     printf("========================================\n");
     printf("  OVERALL: %s\n", r->all_passed ? "PASS" : "FAIL");
     printf("========================================\n");
@@ -559,7 +552,8 @@ void mt_print_result(const mt_result_t *r)
     mt_print_avalanche(&r->avalanche);
     mt_print_bit_independence(&r->bit_independence);
     mt_print_uniformity(&r->uniformity);
-    mt__print_perf(r);
+    printf("--- Performance ---\n");
+    printf("  ns/call       : %.1f ns  (bench trials=%d)\n", r->bench_ns, MT_BENCH_TRIALS);
     printf("========================================\n");
     printf("  OVERALL: %s\n", r->all_passed ? "PASS" : "FAIL");
     printf("========================================\n");
