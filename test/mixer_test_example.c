@@ -1,6 +1,7 @@
 /**
  * mixer_test_example.c
- * コンパイル: gcc -O2 -o mixer_test mixer_test_example.c -lm && ./mixer_test
+ * コンパイル: 
+ * gcc -O2 -o ./compiled/mixer_test ./test/mixer_test_example.c -lm && ./compiled/mixer_test
  */
 
 #define MIXER_TEST_IMPL
