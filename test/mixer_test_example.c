@@ -77,6 +77,7 @@ static void mixer_carried_murmur_2026_05_12(mt_block_t *value_ref)
     }
 
     // murmurハッシュ風の変換を二周。キャリーの上位32bitは1個上に伝播。
+    // メモ：ループをそれぞれのハッシュとキャリーで分割したところ高速になった。
     for (int i = 0; i < 8; i++)
     {
         int this_idx = i;
