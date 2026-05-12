@@ -6,6 +6,8 @@
 
 #define MIXER_TEST_IMPL
 #include "mixer_test.h"
+#include "./../vendor/sha256/sha256.h"
+#include "./../vendor/xxhash/xxhash.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -116,6 +118,29 @@ static void mixer_carried_murmur_2026_05_12(mt_block_t *value_ref)
     // 返す
     *value_ref = tmp;
 }
+
+static void mixer_sha256(mt_block_t *value_ref)
+{
+    SHA256_CTX ctx;
+    uint8_t out[32];
+    sha256_init(&ctx);
+    sha256_update(&ctx, value_ref->data, MT_BLOCK_SIZE);
+    sha256_final(&ctx, out);
+    memcpy(value_ref->data, out, 32);
+}
+
+static void mixer_xxhash(mt_block_t *value_ref)
+{
+    XXH128_hash_t h1 = XXH3_128bits(value_ref->data, MT_BLOCK_SIZE);
+    XXH128_hash_t h2 = XXH3_128bits(value_ref->data + 16, MT_BLOCK_SIZE - 16);
+    h1.low64 ^= h2.high64;
+    h1.high64 ^= h2.low64;
+    h2.low64 ^= h1.high64;
+    h2.high64 ^= h1.low64;
+    memcpy(value_ref->data, &h1, 16);
+    memcpy(value_ref->data + 16, &h2, 16);
+}
+
 // -----------------------------------------------------------------------
 // main
 // -----------------------------------------------------------------------
@@ -123,6 +148,8 @@ static void mixer_carried_murmur_2026_05_12(mt_block_t *value_ref)
 int main(void)
 {
     mt_register(mixer_carried_murmur_2026_05_12, "murmur-like 2nd version(more shifts and carry)");
+    mt_register(mixer_sha256, "sha256");
+    mt_register(mixer_xxhash, "xxhash3-64bit");
     mt_run_all_targets(MT_TRIALS_QUICK);
     return 0;
 }
