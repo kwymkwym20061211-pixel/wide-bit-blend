@@ -56,7 +56,8 @@ static void mixer_murmur_1(mt_block_t *value_ref)
     memcpy(value_ref->data, v, 32);
 }
 
-static void mixer_murmur_2(mt_block_t *value_ref)
+// ちょっと変わったmurmur風ミキサー。ビットの回転とキャリーを入れてみたもの。雪崩効果もある安定版。
+static void mixer_carried_murmur_2026_05_12(mt_block_t *value_ref)
 {
     // 借りる
     mt_block_t tmp = *value_ref;
@@ -119,7 +120,7 @@ static void mixer_murmur_2(mt_block_t *value_ref)
 
 int main(void)
 {
-    mt_register(mixer_murmur_2, "murmur-like 2nd version(more shifts and carry)");
+    mt_register(mixer_carried_murmur_2026_05_12, "murmur-like 2nd version(more shifts and carry)");
     mt_run_all_targets(MT_TRIALS_QUICK);
     return 0;
 }
