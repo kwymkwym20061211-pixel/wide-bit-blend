@@ -1,8 +1,14 @@
 /**
  * mixer_test_example.c
  * コンパイル: 
- * gcc -O2 -o ./compiled/mixer_test ./test/mixer_test_example.c -lm && ./compiled/mixer_test
  */
+/*
+gcc -O2 -o ./compiled/mixer_test ./test/mixer_test_example.c \
+    ./vendor/sha256/sha256.c \
+    ./vendor/xxhash/xxhash.c \
+    -lm && ./compiled/mixer_test
+
+*/
 
 #define MIXER_TEST_IMPL
 #include "mixer_test.h"
