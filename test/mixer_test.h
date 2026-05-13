@@ -60,6 +60,17 @@
 #define MT_UNIFORMITY_OK_MAX 0.53
 #define MT_UNIFORMITY_STDDEV_MAX 0.005 // 全bit stddevの上限
 
+// 衝突耐性の合格ライン
+// ハミング距離の理想平均: MT_BITS/2 = 128、理想stddev: sqrt(MT_BITS/4) ~= 8.0
+#define MT_COLLISION_NEAR_THRESHOLD 10 // この距離以下を「近接衝突」とみなす
+// 二項分布 B(256, 0.5) で距離<=10 になる確率は ~3.7e-35 なので
+// trials=2^20 でも期待値は事実上0。許容率 1e-6 でも十分厳しい。
+#define MT_COLLISION_NEAR_RATE_MAX 1e-6    // 近接衝突ペアの割合の上限
+#define MT_COLLISION_HAMMING_AVG_MIN 126.0 // ハミング距離平均の下限 (理想128)
+#define MT_COLLISION_HAMMING_AVG_MAX 130.0 // ハミング距離平均の上限
+#define MT_COLLISION_HAMMING_SD_MIN 7.0    // ハミング距離stddevの下限 (理想~8.0)
+#define MT_COLLISION_HAMMING_SD_MAX 9.0    // ハミング距離stddevの上限
+
 // -----------------------------------------------------------------------
 // 型定義
 // -----------------------------------------------------------------------
@@ -100,12 +111,24 @@ typedef struct
     bool passed;
 } mt_uniformity_result_t;
 
+// 衝突耐性の結果
+typedef struct
+{
+    uint64_t exact_collisions; // 完全一致ペア数 (0必須)
+    uint64_t near_collisions;  // ハミング距離 <= MT_COLLISION_NEAR_THRESHOLD のペア数
+    double near_rate;          // near_collisions / trials
+    double hamming_avg;        // 出力ペア間ハミング距離の平均 (理想: 128.0)
+    double hamming_stddev;     // 同stddev (理想: ~8.0)
+    bool passed;
+} mt_collision_result_t;
+
 // 総合結果
 typedef struct
 {
     mt_avalanche_result_t avalanche;
     mt_bit_independence_result_t bit_independence;
     mt_uniformity_result_t uniformity;
+    mt_collision_result_t collision;
     uint32_t trials;
     double elapsed_sec; // テスト合計時間(参考)
     double bench_ns;    // ミキサー単体ns/call
@@ -150,6 +173,7 @@ void mt_run_all_targets(uint32_t trials);
 mt_avalanche_result_t mt_test_avalanche(mt_mixer_fn mixer, uint32_t trials);
 mt_bit_independence_result_t mt_test_bit_independence(mt_mixer_fn mixer, uint32_t trials);
 mt_uniformity_result_t mt_test_uniformity(mt_mixer_fn mixer, uint32_t trials);
+mt_collision_result_t mt_test_collision(mt_mixer_fn mixer, uint32_t trials);
 
 mt_result_t mt_run_all(mt_mixer_fn mixer, uint32_t trials);
 
@@ -158,6 +182,7 @@ void mt_print_result_named(const mt_result_t *r, const char *name);
 void mt_print_avalanche(const mt_avalanche_result_t *r);
 void mt_print_bit_independence(const mt_bit_independence_result_t *r);
 void mt_print_uniformity(const mt_uniformity_result_t *r);
+void mt_print_collision(const mt_collision_result_t *r);
 
 // -----------------------------------------------------------------------
 // 実装 (MIXER_TEST_IMPL を define したファイルにだけ展開)
@@ -438,6 +463,51 @@ mt_uniformity_result_t mt_test_uniformity(mt_mixer_fn mixer, uint32_t trials)
     return r;
 }
 
+// ---- 衝突耐性 -----------------------------------------------------------
+
+mt_collision_result_t mt_test_collision(mt_mixer_fn mixer, uint32_t trials)
+{
+    // ランダムなペア (a, b) を trials 組生成し、mixer(a) と mixer(b) を比較する。
+    //   完全衝突 : ハミング距離 == 0 のペア数 (0必須)
+    //   近接衝突 : ハミング距離 <= MT_COLLISION_NEAR_THRESHOLD のペア数
+    //   ハミング距離分布 : Welfordのオンラインアルゴリズムで平均・stddevを1パスで計算
+    //     理想: avg = MT_BITS/2 = 128、stddev = sqrt(MT_BITS/4) ~= 8.0
+
+    uint64_t exact_collisions = 0;
+    uint64_t near_collisions = 0;
+    double welford_mean = 0.0;
+    double welford_m2 = 0.0;
+
+    for (uint32_t t = 0; t < trials; t++)
+    {
+        mt_block_t a, b;
+        mt__rand_block(&a);
+        mt__rand_block(&b);
+        mixer(&a);
+        mixer(&b);
+
+        int dist = mt__popcount_diff(&a, &b);
+        if (dist == 0)
+            exact_collisions++;
+        if (dist <= MT_COLLISION_NEAR_THRESHOLD)
+            near_collisions++;
+
+        double delta = (double)dist - welford_mean;
+        welford_mean += delta / (t + 1);
+        welford_m2 += delta * ((double)dist - welford_mean);
+    }
+    double hamming_sd = (trials > 1) ? sqrt(welford_m2 / trials) : 0.0;
+
+    mt_collision_result_t r;
+    r.exact_collisions = exact_collisions;
+    r.near_collisions = near_collisions;
+    r.near_rate = (double)near_collisions / trials;
+    r.hamming_avg = welford_mean;
+    r.hamming_stddev = hamming_sd;
+    r.passed = (exact_collisions == 0) && (r.near_rate <= MT_COLLISION_NEAR_RATE_MAX) && (welford_mean >= MT_COLLISION_HAMMING_AVG_MIN) && (welford_mean <= MT_COLLISION_HAMMING_AVG_MAX) && (hamming_sd >= MT_COLLISION_HAMMING_SD_MIN) && (hamming_sd <= MT_COLLISION_HAMMING_SD_MAX);
+    return r;
+}
+
 // ---- ターゲット登録・一括実行 -------------------------------------------
 
 static mt_target_t mt__targets[MT_MAX_TARGETS];
@@ -545,6 +615,9 @@ mt_result_t mt_run_all(mt_mixer_fn mixer, uint32_t trials)
     printf("[mixer_test] testing uniformity...\n");
     r.uniformity = mt_test_uniformity(mixer, trials);
 
+    printf("[mixer_test] testing collision resistance...\n");
+    r.collision = mt_test_collision(mixer, trials);
+
     mt__timestamp_t ts_end = mt__now();
     r.elapsed_sec = mt__elapsed_sec(ts_start, ts_end);
 
@@ -552,7 +625,7 @@ mt_result_t mt_run_all(mt_mixer_fn mixer, uint32_t trials)
     mt_bench_result_t bench = mt_bench(mixer, MT_BENCH_TRIALS);
     r.bench_ns = bench.ns_per_call;
 
-    r.all_passed = r.avalanche.passed && r.bit_independence.passed && r.uniformity.passed;
+    r.all_passed = r.avalanche.passed && r.bit_independence.passed && r.uniformity.passed && r.collision.passed;
     return r;
 }
 
@@ -588,6 +661,27 @@ void mt_print_uniformity(const mt_uniformity_result_t *r)
     printf("  result        : %s\n", r->passed ? "PASS" : "FAIL");
 }
 
+void mt_print_collision(const mt_collision_result_t *r)
+{
+    printf("--- Collision Resistance ---\n");
+    printf("  exact collisions : %llu  (must be 0)\n",
+           (unsigned long long)r->exact_collisions);
+    printf("  near collisions  : %llu  (dist<=%d, rate=%.2e, max=%.0e)\n",
+           (unsigned long long)r->near_collisions,
+           MT_COLLISION_NEAR_THRESHOLD,
+           r->near_rate,
+           MT_COLLISION_NEAR_RATE_MAX);
+    printf("  hamming avg      : %.4f  (ideal: 128.0, range: %.1f-%.1f)\n",
+           r->hamming_avg,
+           MT_COLLISION_HAMMING_AVG_MIN,
+           MT_COLLISION_HAMMING_AVG_MAX);
+    printf("  hamming stddev   : %.4f  (ideal: ~8.0, range: %.1f-%.1f)\n",
+           r->hamming_stddev,
+           MT_COLLISION_HAMMING_SD_MIN,
+           MT_COLLISION_HAMMING_SD_MAX);
+    printf("  result           : %s\n", r->passed ? "PASS" : "FAIL");
+}
+
 void mt_print_result_named(const mt_result_t *r, const char *name)
 {
     printf("========================================\n");
@@ -596,6 +690,7 @@ void mt_print_result_named(const mt_result_t *r, const char *name)
     mt_print_avalanche(&r->avalanche);
     mt_print_bit_independence(&r->bit_independence);
     mt_print_uniformity(&r->uniformity);
+    mt_print_collision(&r->collision);
     printf("--- Performance ---\n");
     printf("  ns/call       : %.1f ns  (bench trials=%d)\n", r->bench_ns, MT_BENCH_TRIALS);
     printf("========================================\n");
@@ -611,6 +706,7 @@ void mt_print_result(const mt_result_t *r)
     mt_print_avalanche(&r->avalanche);
     mt_print_bit_independence(&r->bit_independence);
     mt_print_uniformity(&r->uniformity);
+    mt_print_collision(&r->collision);
     printf("--- Performance ---\n");
     printf("  ns/call       : %.1f ns  (bench trials=%d)\n", r->bench_ns, MT_BENCH_TRIALS);
     printf("========================================\n");
