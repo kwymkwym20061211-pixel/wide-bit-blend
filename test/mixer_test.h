@@ -19,6 +19,13 @@
 #ifndef MIXER_TEST_H
 #define MIXER_TEST_H
 
+// clock_gettime を使うために必要 (POSIX環境のみ、Windows では不要)
+#if !defined(_WIN32) && !defined(_WIN64)
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -38,13 +45,20 @@
 #define MT_TRIALS_DEFAULT (1 << 20) // 約100万
 #define MT_TRIALS_QUICK (1 << 16)   // 約6.5万 (軽量確認用)
 
-// 雪崩効果の合格ライン (理想50% ± 5%)
-#define MT_AVALANCHE_OK_MIN 0.45
-#define MT_AVALANCHE_OK_MAX 0.55
+// 雪崩効果の合格ライン
+#define MT_AVALANCHE_OK_MIN 0.45      // avg反転率の下限 (理想50% ± 5%)
+#define MT_AVALANCHE_OK_MAX 0.55      // avg反転率の上限
+#define MT_AVALANCHE_MIN_FLOOR 0.40   // 最悪入力bitの下限 (1bitでも弱ければNG)
+#define MT_AVALANCHE_STDDEV_MAX 0.020 // 反転率stddevの上限 (均質性)
+
+// ビット独立性の合格ライン
+#define MT_BIC_AVG_MIN 0.95 // 平均独立性スコアの下限 (対角除外)
+#define MT_BIC_MIN_MIN 0.70 // 最悪ペアの独立性スコアの下限
 
 // 均一性の合格ライン (各bitの1出現率が50% ± 3%)
 #define MT_UNIFORMITY_OK_MIN 0.47
 #define MT_UNIFORMITY_OK_MAX 0.53
+#define MT_UNIFORMITY_STDDEV_MAX 0.005 // 全bit stddevの上限
 
 // -----------------------------------------------------------------------
 // 型定義
@@ -153,10 +167,46 @@ void mt_print_uniformity(const mt_uniformity_result_t *r);
 
 #include <math.h>
 
+// ---- プラットフォーム別タイマー -----------------------------------------
+// Windows : QueryPerformanceCounter (分解能 ~100ns 以下)
+// POSIX   : clock_gettime(CLOCK_MONOTONIC)
+
+#if defined(_WIN32) || defined(_WIN64)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+typedef LARGE_INTEGER mt__timestamp_t;
+static inline mt__timestamp_t mt__now(void)
+{
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return t;
+}
+static inline double mt__elapsed_sec(mt__timestamp_t start, mt__timestamp_t end)
+{
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
+    return (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart;
+}
+#else
+#include <time.h>
+typedef struct timespec mt__timestamp_t;
+static inline mt__timestamp_t mt__now(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t;
+}
+static inline double mt__elapsed_sec(mt__timestamp_t start, mt__timestamp_t end)
+{
+    return (double)(end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec) * 1e-9;
+}
+#endif
+
 // ---- 内部ユーティリティ ------------------------------------------------
 
 // xorshift64 による軽量乱数 (テスト入力生成用)
-static uint64_t mt__rng_state = 0xdeadbeefcafeULL;
+// シードは mt_run_all / mt_run_all_targets で実行ごとに設定される
+static uint64_t mt__rng_state = 0;
 
 static inline uint64_t mt__rand64(void)
 {
@@ -264,7 +314,7 @@ mt_avalanche_result_t mt_test_avalanche(mt_mixer_fn mixer, uint32_t trials)
     r.min_flip_rate = mn;
     r.max_flip_rate = mx;
     r.stddev = sd;
-    r.passed = (avg >= MT_AVALANCHE_OK_MIN && avg <= MT_AVALANCHE_OK_MAX);
+    r.passed = (avg >= MT_AVALANCHE_OK_MIN && avg <= MT_AVALANCHE_OK_MAX) && (mn >= MT_AVALANCHE_MIN_FLOOR) && (sd <= MT_AVALANCHE_STDDEV_MAX);
     return r;
 }
 
@@ -313,25 +363,30 @@ mt_bit_independence_result_t mt_test_bit_independence(mt_mixer_fn mixer, uint32_
 
     // 独立性スコア: 各(i,j)の変化率が0.5に近いほど1.0に近い
     // score(i,j) = 1 - |rate(i,j) - 0.5| * 2
+    // i==j (入力bitと同位置の出力bit) は自己相関が高くなりやすいため除外
     double sum = 0.0, mn = 1.0;
+    int pair_count = 0;
     for (int i = 0; i < MT_BITS; i++)
     {
         for (int j = 0; j < MT_BITS; j++)
         {
+            if (i == j)
+                continue; // 対角除外
             double rate = (double)counts[i * MT_BITS + j] / trials;
             double score = 1.0 - fabs(rate - 0.5) * 2.0;
             sum += score;
             if (score < mn)
                 mn = score;
+            pair_count++;
         }
     }
 
     free(counts);
 
     mt_bit_independence_result_t r;
-    r.avg_independence = sum / (MT_BITS * MT_BITS);
+    r.avg_independence = sum / pair_count;
     r.min_independence = mn;
-    r.passed = (r.avg_independence >= 0.90);
+    r.passed = (r.avg_independence >= MT_BIC_AVG_MIN) && (r.min_independence >= MT_BIC_MIN_MIN);
     return r;
 }
 
@@ -379,7 +434,7 @@ mt_uniformity_result_t mt_test_uniformity(mt_mixer_fn mixer, uint32_t trials)
     r.min_one_rate = mn;
     r.max_one_rate = mx;
     r.stddev = sd;
-    r.passed = (mn >= MT_UNIFORMITY_OK_MIN && mx <= MT_UNIFORMITY_OK_MAX);
+    r.passed = (mn >= MT_UNIFORMITY_OK_MIN && mx <= MT_UNIFORMITY_OK_MAX) && (sd <= MT_UNIFORMITY_STDDEV_MAX);
     return r;
 }
 
@@ -427,16 +482,16 @@ mt_bench_result_t mt_bench(mt_mixer_fn mixer, uint64_t trials)
     mt_block_t block;
     mt__rand_block(&block);
 
-    clock_t t_start = clock();
+    mt__timestamp_t ts_start = mt__now();
     for (uint64_t i = 0; i < trials; i++)
     {
         mixer(&block);
     }
-    clock_t t_end = clock();
+    mt__timestamp_t ts_end = mt__now();
 
     mt_bench_result_t r;
     r.trials = trials;
-    r.total_sec = (double)(t_end - t_start) / CLOCKS_PER_SEC;
+    r.total_sec = mt__elapsed_sec(ts_start, ts_end);
     r.ns_per_call = r.total_sec * 1e9 / (double)trials;
     return r;
 }
@@ -473,9 +528,13 @@ mt_result_t mt_run_all(mt_mixer_fn mixer, uint32_t trials)
 {
     mt_result_t r;
     r.trials = trials;
-    printf("[mixer_test] trials = %u\n", trials);
 
-    clock_t t_start = clock();
+    // 実行ごとにシードを変える。再現のためシード値を表示する。
+    mt__rng_state = (uint64_t)time(NULL) ^ (uint64_t)(uintptr_t)mixer;
+    printf("[mixer_test] rng seed     = 0x%016llx\n", (unsigned long long)mt__rng_state);
+    printf("[mixer_test] trials       = %u\n", trials);
+
+    mt__timestamp_t ts_start = mt__now();
 
     printf("[mixer_test] testing avalanche effect...\n");
     r.avalanche = mt_test_avalanche(mixer, trials);
@@ -486,8 +545,8 @@ mt_result_t mt_run_all(mt_mixer_fn mixer, uint32_t trials)
     printf("[mixer_test] testing uniformity...\n");
     r.uniformity = mt_test_uniformity(mixer, trials);
 
-    clock_t t_end = clock();
-    r.elapsed_sec = (double)(t_end - t_start) / CLOCKS_PER_SEC;
+    mt__timestamp_t ts_end = mt__now();
+    r.elapsed_sec = mt__elapsed_sec(ts_start, ts_end);
 
     // 単体ベンチ
     mt_bench_result_t bench = mt_bench(mixer, MT_BENCH_TRIALS);
@@ -504,17 +563,17 @@ void mt_print_avalanche(const mt_avalanche_result_t *r)
     printf("--- Avalanche Effect ---\n");
     printf("  avg flip rate : %.4f  (ideal: 0.5000, range: %.2f-%.2f)\n",
            r->avg_flip_rate, MT_AVALANCHE_OK_MIN, MT_AVALANCHE_OK_MAX);
-    printf("  min flip rate : %.4f\n", r->min_flip_rate);
+    printf("  min flip rate : %.4f  (floor: %.2f)\n", r->min_flip_rate, MT_AVALANCHE_MIN_FLOOR);
     printf("  max flip rate : %.4f\n", r->max_flip_rate);
-    printf("  stddev        : %.4f  (smaller is better)\n", r->stddev);
+    printf("  stddev        : %.4f  (max: %.3f)\n", r->stddev, MT_AVALANCHE_STDDEV_MAX);
     printf("  result        : %s\n", r->passed ? "PASS" : "FAIL");
 }
 
 void mt_print_bit_independence(const mt_bit_independence_result_t *r)
 {
-    printf("--- Bit Independence ---\n");
-    printf("  avg score     : %.4f  (ideal: 1.0000)\n", r->avg_independence);
-    printf("  min score     : %.4f\n", r->min_independence);
+    printf("--- Bit Independence (diagonal excluded) ---\n");
+    printf("  avg score     : %.4f  (min: %.2f)\n", r->avg_independence, MT_BIC_AVG_MIN);
+    printf("  min score     : %.4f  (floor: %.2f)\n", r->min_independence, MT_BIC_MIN_MIN);
     printf("  result        : %s\n", r->passed ? "PASS" : "FAIL");
 }
 
@@ -525,7 +584,7 @@ void mt_print_uniformity(const mt_uniformity_result_t *r)
            r->avg_one_rate, MT_UNIFORMITY_OK_MIN, MT_UNIFORMITY_OK_MAX);
     printf("  min 1-rate    : %.4f\n", r->min_one_rate);
     printf("  max 1-rate    : %.4f\n", r->max_one_rate);
-    printf("  stddev        : %.4f\n", r->stddev);
+    printf("  stddev        : %.4f  (max: %.3f)\n", r->stddev, MT_UNIFORMITY_STDDEV_MAX);
     printf("  result        : %s\n", r->passed ? "PASS" : "FAIL");
 }
 

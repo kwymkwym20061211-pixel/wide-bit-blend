@@ -196,6 +196,7 @@ static void mixer_carried_murmur_2026_05_13(mt_block_t *value_ref)
 
 int main(void)
 {
+    mt_register(mixer_xxhash, "XXHash3-128");
     mt_register(mixer_carried_murmur_2026_05_12, "murmur-like 2nd version");
     mt_register(mixer_carried_murmur_2026_05_13, "murmur-like 3rd version");
     mt_run_all_targets(MT_TRIALS_QUICK);
