@@ -75,8 +75,9 @@
 // 型定義
 // -----------------------------------------------------------------------
 
-typedef struct
+typedef union
 {
+    uint64_t word[4];
     uint8_t data[MT_BLOCK_SIZE];
 } mt_block_t;
 
