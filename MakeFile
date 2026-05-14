@@ -1,24 +1,34 @@
-CC = gcc
-CFLAGS = -O2 -I./vendor/sha256 -I./vendor/xxhash -I.
-LDFLAGS = -lm
-TARGET = ./compiled/mixer_test
+CC      := gcc
+CFLAGS  := -O2 -std=c17 -Wall -Wextra -I./src -I./vendor/sha256 -I./vendor/xxhash -I.
+LDFLAGS := -lm
+TARGET  := ./compiled/mixer_test
+OBJ_DIR := ./compiled/obj
 
-# 全ての.cファイルを取得
-SRCS = $(shell find . -name "*.c")
-# .c を .o に変換したリストを作成
-OBJS = $(SRCS:.c=.o)
+# 全てのソースファイルをリストアップ
+SRCS := $(shell find src -name "*.c") \
+        $(shell find vendor -name "*.c" 2>/dev/null)
 
+# .c を .o に置換しつつ、頭に OBJ_DIR をつける
+# patsubst を使い、%.c を $(OBJ_DIR)/%.o に変換します
+OBJS := $(patsubst %.c, $(OBJ_DIR)/%.o, $(SRCS))
+
+all: $(TARGET)
+
+# リンク
 $(TARGET): $(OBJS)
-	@mkdir -p ./compiled
+	@mkdir -p $(dir $@)
 	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
 
-# 個別のコンパイルルール
-%.o: %.c
+# 汎用コンパイルルール
+# $(OBJ_DIR)/ 以下の .o を作るには、対応するカレントディレクトリの .c を見る
+$(OBJ_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-.PHONY: clean run
 run: $(TARGET)
 	$(TARGET)
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET)
+
+.PHONY: all run clean
