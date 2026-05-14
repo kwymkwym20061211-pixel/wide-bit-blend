@@ -3,8 +3,8 @@
  */
 
 #define MIXER_TEST_IMPL
-#include "mixer_test.h"
-#include "murmur_based_2026_05_14.h"
+#include "src/include/mixer_test.h"
+#include "src/include/murmur_based_2026_05_14.h"
 
 
 #include <stdint.h>
