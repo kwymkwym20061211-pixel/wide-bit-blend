@@ -1,0 +1,24 @@
+CC = gcc
+CFLAGS = -O2 -I./vendor/sha256 -I./vendor/xxhash -I.
+LDFLAGS = -lm
+TARGET = ./compiled/mixer_test
+
+# 全ての.cファイルを取得
+SRCS = $(shell find . -name "*.c")
+# .c を .o に変換したリストを作成
+OBJS = $(SRCS:.c=.o)
+
+$(TARGET): $(OBJS)
+	@mkdir -p ./compiled
+	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
+
+# 個別のコンパイルルール
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+.PHONY: clean run
+run: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -f $(OBJS) $(TARGET)
