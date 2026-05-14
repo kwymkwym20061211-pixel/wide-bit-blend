@@ -1,7 +1,7 @@
-#ifndef MIXER_MURMUR_BASED_2006_05_13_H
-#define MIXER_MURMUR_BASED_2006_05_13_H
+#ifndef MIXER_MURMUR_BASED_2026_05_13_H
+#define MIXER_MURMUR_BASED_2026_05_13_H
 
-#include "../test/mixer_test.h"
+#include "mixer_test.h"
 
 // ちょっと変わったmurmur風ミキサー。ビットの回転とキャリーを入れてみたもの。雪崩効果もある安定版。
 static void mixer_carried_murmur_2026_05_13(mt_block_t *value_ref)
@@ -48,4 +48,4 @@ static void mixer_carried_murmur_2026_05_13(mt_block_t *value_ref)
     *value_ref = tmp;
 }
 
-#endif // MIXER_MURMUR_BASED_2006_05_13_H
+#endif // MIXER_MURMUR_BASED_2026_05_13_H
