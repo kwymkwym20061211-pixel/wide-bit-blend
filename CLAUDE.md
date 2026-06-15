@@ -43,7 +43,7 @@ compiled/                       # ビルド出力（gitignore対象）
 **`src/include/murmur_based_2026_06_15.h`** — `mixer_carried_murmur_2026_06_15()`
 
 - murmur3 ファイナライザ風の変換＋XOR伝播を **2ループ**
-- 内製テスト全PASS、PractRand **32GB / 328テスト 異常なし**
+- 内製テスト全PASS、PractRand **1TB / 401テスト 異常なし**
 - 速度: **44.2 ns/call** (`-O2`)
 
 第4世代 (2026_05_14) はループ1回でPractRand 64MBで即FAIL（下位ビット崩壊）。詳細は `docs/report-2026-06-15.md`。
