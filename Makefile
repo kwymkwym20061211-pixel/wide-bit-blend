@@ -25,10 +25,18 @@ $(OBJ_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+PRNG_STDOUT := ./compiled/prng_stdout
+
+$(PRNG_STDOUT): tools/prng_stdout.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) tools/prng_stdout.c -o $(PRNG_STDOUT) $(LDFLAGS)
+
+prng_stdout: $(PRNG_STDOUT)
+
 run: $(TARGET)
 	$(TARGET)
 
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET) $(PRNG_STDOUT)
 
-.PHONY: all run clean
+.PHONY: all run prng_stdout clean

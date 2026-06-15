@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//usr/**)",
+      "Read(//home/**)",
+      "Bash(apt-cache search *)",
+      "WebSearch"
+    ]
+  }
+}
