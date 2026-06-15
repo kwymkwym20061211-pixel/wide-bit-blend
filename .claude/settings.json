@@ -4,7 +4,10 @@
       "Read(//usr/**)",
       "Read(//home/**)",
       "Bash(apt-cache search *)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(make prng_stdout)",
+      "Bash(./compiled/prng_stdout)",
+      "Bash(/home/user/dev/PractRand/RNG_test stdin *)"
     ]
   }
 }
