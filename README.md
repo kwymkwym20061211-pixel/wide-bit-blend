@@ -11,5 +11,5 @@
 ```
 
 ```
-./compiled/prng_stdout | /home/user/dev/PractRand/RNG_test stdin -tlmax 32G
+time (./compiled/prng_stdout | /home/user/dev/PractRand/RNG_test stdin -tlmax 32G)
 ```
